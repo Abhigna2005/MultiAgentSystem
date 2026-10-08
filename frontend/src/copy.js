@@ -1,0 +1,226 @@
+// Enum → founder copy. The single permitted mapping from engine vocabulary to
+// the screen (docs/founder_frontend_spec.md §26). Nothing elsewhere may
+// translate engine terms.
+
+export const RISK = {
+  LOW: { label: "Low risk", tone: "green", glyph: "●" },
+  MEDIUM: { label: "Moderate risk", tone: "blue", glyph: "●" },
+  HIGH: { label: "Elevated risk", tone: "amber", glyph: "⚠" },
+  CRITICAL: { label: "Critical risk", tone: "red", glyph: "⚠" }
+};
+
+export const OUTLOOK = {
+  ACCELERATING: "growth is accelerating",
+  STABLE: "growth is steady",
+  DECLINING: "growth is slowing",
+  COLLAPSING: "growth is falling sharply"
+};
+
+export const OUTCOME = {
+  GROWTH: { label: "growth", glyph: "▲", tone: "green" },
+  STAGNATION: { label: "flat", glyph: "▬", tone: "amber" },
+  DECLINE: { label: "decline", glyph: "▼", tone: "red" }
+};
+
+// Board focus mix labels (§26): weights → founder words.
+export const FOCUS_LABELS = {
+  innovation: "Product",
+  growth: "Growth",
+  efficiency: "Efficiency",
+  macro: "Market"
+};
+
+// Confidence scalar → qualitative band (§15.1): never a percentage.
+export function confidenceBand(confidence) {
+  if (confidence == null) return "Moderate";
+  if (confidence < 0.4) return "Low";
+  if (confidence <= 0.7) return "Moderate";
+  return "High";
+}
+
+// refresh_reason / client-side trigger → plain copy (§15.1 rule 4).
+export function refreshReasonCopy(reason) {
+  switch (reason) {
+    case "initial": return "your first analysis";
+    case "cadence": return "scheduled monthly review";
+    case "runway": return "re-analysed early: runway fell below 12 months";
+    case "mrr_drop": return "re-analysed early: revenue dropped more than 15%";
+    case "churn_jump": return "re-analysed early: churn rose 1.5 points or more";
+    case "event": return "re-analysed early: a significant change in your numbers";
+    default: return "monthly review";
+  }
+}
+
+export function briefSourceCopy(source) {
+  if (source === "cache_hit" || source === "reuse") return "consistent with your last analysis";
+  return null;
+}
+
+// L1 position sentence, assembled from enums only — never free LLM text (§10.1).
+export function positionSentence(brief) {
+  if (!brief) return "Run an analysis to see where you stand.";
+  const outlook = OUTLOOK[brief.growth_outlook] || OUTLOOK.STABLE;
+  const focusBits = {
+    innovation: "protect retention and product momentum",
+    efficiency: "tighten spending and protect runway",
+    growth: "lean into acquisition",
+    macro: "play defensively while conditions are rough"
+  };
+  const topFocus = brief._topFocus || "innovation";
+  switch (brief.risk_level) {
+    case "CRITICAL":
+      return `Serious pressure on the business — ${outlook}. This month: ${focusBits[topFocus]}.`;
+    case "HIGH":
+      return `Things need attention — ${outlook}. This month: ${focusBits[topFocus]}.`;
+    case "LOW":
+      return `You're in good shape — ${outlook}. This month: ${focusBits[topFocus]}.`;
+    default:
+      return `Steady but watchful — ${outlook}. This month: ${focusBits[topFocus]}.`;
+  }
+}
+
+// Modifier percentage → verbal scale (§10.1 L3). Numbers appear once, in amounts.
+export function scaleWord(changePct) {
+  if (changePct == null) return null;
+  if (changePct <= -40) return "scaled back sharply";
+  if (changePct <= -15) return "scaled back";
+  if (changePct <= -5) return "trimmed slightly";
+  if (changePct >= 40) return "increased sharply";
+  if (changePct >= 15) return "increased";
+  if (changePct >= 5) return "nudged up";
+  return null;
+}
+
+// LLM free-text guardrail (§15.4): clamp length, cap at 3, drop bullets whose
+// numeric claims match nothing in the founder's numbers.
+export function guardBullets(bullets, knownNumbers) {
+  if (!Array.isArray(bullets)) return [];
+  const nums = (knownNumbers || []).filter((n) => n != null && Number.isFinite(n));
+  return bullets
+    .filter((b) => typeof b === "string" && b.trim().length > 0)
+    .slice(0, 3)
+    .map((b) => (b.length > 140 ? `${b.slice(0, 137)}…` : b))
+    .filter((b) => {
+      const claims = (b.match(/\$?\d[\d,]*(\.\d+)?%?/g) || []).map((m) =>
+        parseFloat(m.replace(/[$,%]/g, ""))
+      );
+      if (claims.length === 0) return true;
+      return claims.every((c) =>
+        nums.some((n) => {
+          const scale = Math.max(Math.abs(n), 1);
+          return Math.abs(n - c) / scale < 0.2 || (c <= 100 && Math.abs(c - n) < 3);
+        })
+      );
+    });
+}
+
+// Simulated-memory documents → founder sentences (§15.3). Strips scores; keeps
+// tier phrases and the realized outcome.
+const PHASE_WORDS = { SEED: "early revenue", EARLY: "growing", GROWTH: "scaling", SCALE: "at scale" };
+const CHURN_WORDS = { LOW: "low churn", MEDIUM: "moderate churn", HIGH: "high churn", CRITICAL: "severe churn" };
+const INNOV_WORDS = { HEALTHY: "product momentum healthy", DECLINING: "product losing momentum", DEGRADED: "product momentum badly degraded" };
+
+export function rewriteMemory(memory) {
+  const doc = memory?.document || "";
+  const outcome = OUTCOME[memory?.metadata?.realized_outcome] || OUTCOME.STAGNATION;
+  const phase = PHASE_WORDS[(doc.match(/Phase:\s*(\w+)/) || [])[1]] || "a similar stage";
+  const churn = CHURN_WORDS[(doc.match(/Churn:\s*(\w+)/) || [])[1]] || null;
+  const innov = INNOV_WORDS[(doc.match(/Innovation:\s*(\w+)/) || [])[1]] || null;
+  const traits = [phase, churn, innov].filter(Boolean).join(", ");
+  const ending =
+    outcome.label === "growth" ? "grew over the following 6 months" :
+    outcome.label === "decline" ? "declined over the following 6 months" :
+    "stayed roughly flat over the following 6 months";
+  return { sentence: `A simulated company at ${traits} ${ending}.`, outcome };
+}
+
+// Expected outcome headline (§26).
+export function expectedOutcomeCopy(expected) {
+  const o = OUTCOME[expected];
+  if (!o) return null;
+  return `In simulation, the next 6–12 months most often looked like: ${o.label}.`;
+}
+
+export const SIMULATED_PREFIX = "From simulations, not real companies";
+
+export const DOMAIN_META = {
+  product: { title: "Product & retention", weightKey: "innovation" },
+  marketing: { title: "Marketing & growth", weightKey: "growth" },
+  hiring: { title: "Hiring", weightKey: "efficiency" },
+  pricing: { title: "Pricing", weightKey: "efficiency" }
+};
+
+export const CHANNEL_COPY = { ppc: "performance channels", brand: "brand building" };
+
+
+// Causal-graph vocabulary → founder copy (§26). The engine's Neo4j graph names
+// stress states and levers in its own terms; these are the only renderings of
+// them permitted on screen.
+export const CAUSAL_STRESS = {
+  Steady_State: "conditions were steady",
+  Cash_Shortage: "cash ran tight",
+  Churn_Spike: "churn spiked",
+  CAC_Pressure: "acquisition costs climbed",
+  Growth_Stall: "growth stalled"
+};
+
+export const CAUSAL_EFFECT = {
+  Runway_Depletion: "runway shortened",
+  Hiring_Freeze_Recommended: "hiring was frozen",
+  Marketing_Spend_Cut: "marketing spend was cut",
+  Product_Investment_Delay: "product investment was delayed",
+  Burn_Rate_Reduction: "burn was brought down",
+  Cost_Structure_Review: "costs were reviewed",
+  Margin_Optimization_Review: "margins were reworked",
+  CAC_Reduction_Campaign: "acquisition costs were attacked directly",
+  Acquisition_Channel_Reallocation: "spend moved between channels",
+  Growth_Channel_Diversification: "new channels were opened",
+  Growth_Acceleration_Push: "growth spend was pushed harder",
+  Pricing_Power_Assessment: "pricing was re-examined",
+  Product_Quality_Investment: "product quality was invested in",
+  Product_Retention_Investment: "retention work was funded",
+  Innovation_Pipeline_Build: "the product pipeline was built out",
+  Tech_Debt_Remediation: "technical debt was paid down"
+};
+
+function joinPhrases(items) {
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+function translate(names) {
+  return (names || []).map((name) => CAUSAL_EFFECT[name]).filter(Boolean).slice(0, 3);
+}
+
+// Sentences from the causal graph, or [] when there is nothing honest to say.
+//
+// Observed and expected links are worded differently on purpose. The graph's
+// CONFIRMED_CAUSE edges come from what actually happened in past simulated
+// runs; its MAY_CAUSE edges are largely a hand-authored prior seeded before any
+// evidence existed. Wording both as "what happened in past runs" would dress a
+// built-in assumption up as a finding.
+//
+// Never renders a raw node name: an unmapped term is dropped rather than shown.
+export function causalEvidenceCopy(graph) {
+  if (!graph || !graph.stress_node) return [];
+  const stress = CAUSAL_STRESS[graph.stress_node];
+  if (!stress) return [];
+
+  const lines = [];
+  const observed = translate(graph.observed);
+  const expected = translate(graph.expected);
+
+  if (observed.length) {
+    lines.push({
+      kind: "observed",
+      text: `In past simulated runs where ${stress}, what followed was: ${joinPhrases(observed)}.`
+    });
+  }
+  if (expected.length) {
+    lines.push({
+      kind: "expected",
+      text: `The board's working assumption when ${stress}: ${joinPhrases(expected)}. This is a built-in prior, not something measured in past runs.`
+    });
+  }
+  return lines;
+}

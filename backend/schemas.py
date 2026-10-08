@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class ScenarioConfig(BaseModel):
+    company_name: str = "Demo SaaS"
+    startup_stage: str = "Series A"
+    business_model: str = "B2B SaaS"
+    market_segment: str = "SMB"
+    initial_headcount: int = Field(default=1, ge=1, le=10000)
+    initial_mrr: float = Field(default=50000, gt=0)
+    initial_cash: float = Field(default=1000000, gt=0)
+    average_price: float = Field(default=50, gt=0)
+    valuation_multiple: float = Field(default=10, gt=0)
+    cac: float = Field(default=50, gt=0)
+    ltv: float = Field(default=7000, gt=0)
+    churn_smb: float = Field(default=0.03, ge=0, le=1)
+    churn_enterprise: float = Field(default=0.01, ge=0, le=1)
+    churn_b2c: float = Field(default=0.05, ge=0, le=1)
+    interest_rate: float = Field(default=3, ge=0, le=100)
+    consumer_confidence: float = Field(default=100, ge=0, le=200)
+    competitors: int = Field(default=5, ge=0)
+    unemployment: float = Field(default=4, ge=0, le=100)
+    product_quality: float = Field(default=0.1, ge=0, le=1)
+    innovation_factor: float = Field(default=1, ge=0, le=1)
+    max_months: int = Field(default=120, ge=1, le=120)
+
+
+class ScenarioCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    config: ScenarioConfig = Field(default_factory=ScenarioConfig)
+
+
+class SimulationCreate(BaseModel):
+    scenario_id: int | None = None
+    policy: str = "boardroom"
+    episodes: int = Field(default=1, ge=1, le=25)
+    seed_start: int = Field(default=0, ge=0)
+    oracle_frequency: int = Field(default=5, ge=1, le=120)
+
+
+# Founder product (spec G1/G2). Fields mirror the client's buildAdvisePayload;
+# every one is optional-with-default because onboarding deliberately asks for a
+# minimum set and enriches later.
+class FounderConfig(BaseModel):
+    company_name: str = "My company"
+    initial_mrr: float = Field(default=0, ge=0)
+    initial_cash: float = Field(default=0, ge=0)
+    average_price: float = Field(default=50, gt=0)
+    cac: float | None = Field(default=None, ge=0)
+    ltv: float | None = Field(default=None, ge=0)
+    churn_enterprise: float = Field(default=0.01, ge=0, le=1)
+    churn_smb: float = Field(default=0.03, ge=0, le=1)
+    churn_b2c: float = Field(default=0.05, ge=0, le=1)
+    competitors: int = Field(default=5, ge=0)
+    product_quality: float = Field(default=0.5, ge=0, le=1)
+    initial_headcount: int = Field(default=1, ge=1, le=10000)
+    # The founder's actual monthly costs. These used to be encoded as virtual
+    # headcount ($8k salary slots) on the client, which floored every company
+    # under $12k/mo of costs at exactly $8,000 and killed it in month 0 of every
+    # projection. None keeps the engine on its headcount convention.
+    monthly_costs: float | None = Field(default=None, ge=0)
+    interest_rate: float | None = Field(default=None, ge=0, le=100)
+    consumer_confidence: float | None = Field(default=None, ge=0, le=200)
+
+
+class FounderHistoryEntry(BaseModel):
+    mrr: float | None = None
+    churn: float | None = None
+    entered_at: str | None = None
+
+
+class AdviseRequest(BaseModel):
+    company_id: str
+    company_age_months: int = Field(default=0, ge=0)
+    month_index: int = Field(default=0, ge=0)
+    config: FounderConfig
+    history: list[FounderHistoryEntry] = Field(default_factory=list)
+
+
+class CycleRequest(BaseModel):
+    """One Observe -> Execute -> Feedback -> Adapt cycle of H months
+    (docs/oefa_loop_plan.md section 4). Same founder shape as AdviseRequest
+    plus the cycle controls.
+
+    `previous_track_record` is what the last HITL close returned: the board's
+    previous action, its prediction and the founder's actual numbers. Passing
+    it back is how "the next cycle starts from the actual state, carrying the
+    previous cycle's prediction error into the prompt context" happens.
+    """
+
+    company_id: str
+    company_age_months: int = Field(default=0, ge=0)
+    month_index: int = Field(default=0, ge=0)
+    config: FounderConfig
+    history: list[FounderHistoryEntry] = Field(default_factory=list)
+    horizon_months: int = Field(default=4, ge=1, le=6)
+    use_oracle: bool = True
+    seed: int = Field(default=0, ge=0)
+    previous_track_record: dict | None = None
+
+
+class ActionFeedback(BaseModel):
+    action_key: Literal["marketing", "product", "hiring", "pricing"]
+    done: Literal["did", "partly", "didnt"]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class CycleActuals(BaseModel):
+    """The founder's real numbers a month later. churn is percent per month,
+    the unit the founder types; costs is optional and defaults to what the
+    cycle was told."""
+
+    mrr: float = Field(ge=0)
+    cash: float = Field(ge=0)
+    churn: float = Field(ge=0, le=100)
+    costs: float | None = Field(default=None, ge=0)
+
+
+class CycleFeedbackRequest(BaseModel):
+    """The HITL close (plan section 6): what happened to last month's plan."""
+
+    month_index: int = Field(default=1, ge=1)
+    per_action: list[ActionFeedback] = Field(default_factory=list)
+    actuals: CycleActuals
+
+
+class WhatIfRequest(BaseModel):
+    """Roll the founder's state forward under competing policies (D5).
+
+    `recommended_action` is the board's plan from an analysis the client already
+    holds, so this endpoint needs no LLM call and returns in well under a second.
+    Omitting it makes the recommended arm a no-op, which is honest but pointless
+    - the client only offers this once an analysis exists.
+    """
+
+    company_age_months: int = Field(default=0, ge=0)
+    config: FounderConfig
+    recommended_action: dict | None = None
+    current_marketing_spend: float | None = Field(default=None, ge=0)
+    horizon_months: int = Field(default=12, ge=1, le=36)
+    n_seeds: int = Field(default=50, ge=10, le=500)
+    shock_mode: bool = False

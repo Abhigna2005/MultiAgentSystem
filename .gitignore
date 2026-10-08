@@ -1,0 +1,35 @@
+.env
+.pytest_cache/
+venv/
+.venv/
+.tools/
+chroma_db/
+outputs/
+/results/
+frontend/dist/
+frontend/node_modules/
+__pycache__/
+*.py[cod]
+*.log
+node_modules/
+frontend/dist/
+# `data/*` rather than `data/`: git will not descend into an excluded directory,
+# so the negations below would not apply. The EDGAR ingestion script and its two
+# deliverables are tracked; the 71MB raw API cache, the local app database and
+# the regenerable CSV exports are not.
+data/*
+!data/ingest_edgar.py
+!data/extract_panel_sample.py
+!data/coverage_report.md
+!data/panel_extract.md
+!data/panel_shortlist.csv
+# !data/edgar.db - local database, intentionally not tracked
+chroma_db_founder/
+backups/
+audit_*.json
+*.pdf
+calibration/sources/
+variance_*.json
+
+# Runtime logs from start.ps1
+.logs/

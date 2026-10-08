@@ -1,0 +1,22 @@
+gymnasium
+numpy
+pydantic
+pandas
+matplotlib
+# experiments/thesis_analysis.py imports scipy for Mann-Whitney U and silently
+# falls back to a normal approximation with no tie correction when it is absent.
+# It was missing from this file while recorded results carry
+# method=scipy_mannwhitneyu, so the environment had already drifted away from
+# the one those results were produced in. Declared here to stop that recurring.
+scipy
+chromadb
+neo4j
+ollama
+tabulate
+pytest
+openai>=1.0.0
+anthropic>=0.25.0
+python-dotenv>=1.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+httpx>=0.27.0
