@@ -14,7 +14,7 @@ cd frontend
 npm install
 npm run build
 cd ..
-python run_app.py
+.\start.ps1
 ```
 
 Open `http://127.0.0.1:8000`. FastAPI serves the built frontend and API as one
